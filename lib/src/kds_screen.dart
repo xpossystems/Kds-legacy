@@ -22,6 +22,7 @@ class _KdsScreenState extends State<KdsScreen> {
   List<KdsTicket> _tickets = [];
   String _statusText = 'Starting…';
   String _station = 'All';
+  bool _expo = false;
   Timer? _tick;
   StreamSubscription? _sub1;
   StreamSubscription? _sub2;
@@ -105,6 +106,8 @@ class _KdsScreenState extends State<KdsScreen> {
                   _stat('${oldest}m', 'Oldest',
                       oldest >= lateAt ? KColors.danger : KColors.textMuted),
                   const Spacer(),
+                  _viewToggle(),
+                  const SizedBox(width: 8),
                   _stationChips(),
                   const SizedBox(width: 8),
                   IconButton(
@@ -126,7 +129,10 @@ class _KdsScreenState extends State<KdsScreen> {
                             child: Wrap(
                               spacing: 14,
                               runSpacing: 14,
-                              children: [for (final t in filtered) _ticketCard(t)],
+                              children: [
+                                for (final t in filtered)
+                                  _expo ? _expoCard(t) : _ticketCard(t)
+                              ],
                             ),
                           ),
               ),
@@ -292,6 +298,40 @@ class _KdsScreenState extends State<KdsScreen> {
     );
   }
 
+  /// Compact segmented view switch: Tickets (station grid) | Expo (board).
+  Widget _viewToggle() {
+    Widget seg(String label, bool selected, VoidCallback onTap) {
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: selected ? const Color(0xFF14171E) : KColors.textMuted,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11)),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: KColors.surface,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: KColors.border),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        seg('Tickets', !_expo, () => setState(() => _expo = false)),
+        seg('Expo', _expo, () => setState(() => _expo = true)),
+      ]),
+    );
+  }
+
   Widget _ticketCard(KdsTicket t) {
     final held = t.status == 'held';
     final ageColor = held
@@ -431,9 +471,16 @@ class _KdsScreenState extends State<KdsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(it.name,
-                    style: const TextStyle(
-                        color: KColors.text, fontWeight: FontWeight.w600, fontSize: 14)),
+                Row(children: [
+                  Flexible(
+                    child: Text(it.name,
+                        style: const TextStyle(
+                            color: KColors.text,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14)),
+                  ),
+                  if (it.allergy) _allergyTag(),
+                ]),
                 for (final m in it.modifiers)
                   Text('› $m',
                       style: const TextStyle(color: KColors.textMuted, fontSize: 12)),
@@ -441,6 +488,12 @@ class _KdsScreenState extends State<KdsScreen> {
                   Text('!! ${it.notes}',
                       style: const TextStyle(
                           color: Color(0xFFF08A8A),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700)),
+                if (it.allergy && it.allergyNote.isNotEmpty)
+                  Text('!! ${it.allergyNote}',
+                      style: const TextStyle(
+                          color: KColors.danger,
                           fontSize: 12,
                           fontWeight: FontWeight.w700)),
                 if (it.seat != null)
@@ -461,6 +514,20 @@ class _KdsScreenState extends State<KdsScreen> {
               ],
             ),
           ),
+          // Read-only prep dot — expo is the interaction surface for prep.
+          if (it.prepStatus == 'started' || it.prepStatus == 'done')
+            Padding(
+              padding: const EdgeInsets.only(right: 5, top: 2),
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                    color: it.prepStatus == 'done'
+                        ? KColors.success
+                        : KColors.warning,
+                    shape: BoxShape.circle),
+              ),
+            ),
           Text(it.station.toUpperCase(),
               style: TextStyle(
                   color: KColors.station(it.station),
@@ -469,5 +536,289 @@ class _KdsScreenState extends State<KdsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _allergyTag() {
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+          color: KColors.danger.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(5)),
+      child: const Text('ALLERGY',
+          style: TextStyle(
+              color: KColors.danger, fontSize: 9, fontWeight: FontWeight.w800)),
+    );
+  }
+
+  // ── Expo board ────────────────────────────────────────────────────────────
+
+  /// Consolidation card: every item of the ticket (all stations) with a
+  /// tappable prep chip per line, allergy/ack state, and the Bump verb.
+  Widget _expoCard(KdsTicket t) {
+    final held = t.status == 'held';
+    final ageColor = held
+        ? KColors.textFaint
+        : KColors.ticketAge(t.age,
+            warn: _client.slaWarnMinutes, late: _client.slaLateMinutes);
+    final mins = t.age.inMinutes;
+    final secs = (t.age.inSeconds % 60).toString().padLeft(2, '0');
+    final isNamedOrder =
+        t.tableLabel.startsWith('TAKE') || t.tableLabel.startsWith('DELIV');
+    final ready = t.allItemsDone;
+    return Opacity(
+      opacity: held ? 0.65 : 1,
+      child: Container(
+        width: 320,
+        decoration: BoxDecoration(
+          color: KColors.surface,
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: KColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 4,
+              decoration: BoxDecoration(
+                color: ageColor,
+                borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(13), topRight: Radius.circular(13)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(13),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              Flexible(
+                                child: Text(
+                                    isNamedOrder
+                                        ? t.tableLabel
+                                        : 'Table ${t.tableLabel}',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        color: KColors.text,
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w700)),
+                              ),
+                              if (held)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 8),
+                                  child: Text('HELD',
+                                      style: TextStyle(
+                                          color: KColors.warning,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800)),
+                                ),
+                              if (t.hasAllergy) _ackBadge(t),
+                            ]),
+                            const SizedBox(height: 2),
+                            Text(
+                                '${t.room.isNotEmpty ? '${t.room} · ' : ''}${t.guests} guests · Course ${t.course}',
+                                style: const TextStyle(
+                                    color: KColors.textMuted, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: ageColor.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Text('$mins:$secs',
+                            style: TextStyle(
+                                color: ageColor,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  for (final it in t.items) _expoItemRow(t, it),
+                  const SizedBox(height: 2),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _client.sendAction('bump', t.id),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            ready ? KColors.primary : KColors.surfaceAlt,
+                        foregroundColor: ready ? Colors.white : KColors.textMuted,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(9)),
+                      ),
+                      icon: const Icon(Icons.check, size: 17),
+                      label: const Text('Bump'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Allergy ack state, shown only on tickets that carry allergy lines.
+  Widget _ackBadge(KdsTicket t) {
+    if (t.allergyAckBy.isEmpty) {
+      return Container(
+        margin: const EdgeInsets.only(left: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: KColors.danger.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: KColors.danger.withValues(alpha: 0.55)),
+        ),
+        child: const Text('UNACKED',
+            style: TextStyle(
+                color: KColors.danger, fontSize: 9, fontWeight: FontWeight.w800)),
+      );
+    }
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+          color: KColors.surfaceAlt, borderRadius: BorderRadius.circular(6)),
+      child: Text('ACK ${t.allergyAckBy.toUpperCase()}',
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+              color: KColors.textMuted, fontSize: 9, fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _expoItemRow(KdsTicket t, KdsItem it) {
+    final detail = [
+      if (it.seat != null) 'S${it.seat}',
+      ...it.modifiers,
+      if (it.notes.isNotEmpty) '!! ${it.notes}',
+    ].join(' · ');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(left: it.allergy ? 8 : 0),
+      decoration: it.allergy
+          ? const BoxDecoration(
+              border:
+                  Border(left: BorderSide(color: KColors.danger, width: 3)))
+          : null,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Flexible(
+                    child: Text('${it.qty}× ${it.name}',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: KColors.text,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14)),
+                  ),
+                  if (it.allergy) _allergyTag(),
+                ]),
+                if (detail.isNotEmpty)
+                  Text(detail,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(color: KColors.textMuted, fontSize: 11)),
+                if (it.allergy && it.allergyNote.isNotEmpty)
+                  Text('!! ${it.allergyNote}',
+                      style: const TextStyle(
+                          color: KColors.danger,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _prepChip(t, it),
+        ],
+      ),
+    );
+  }
+
+  /// Prep state chip: empty → COOKING (amber) → READY (green) → empty.
+  Widget _prepChip(KdsTicket t, KdsItem it) {
+    final Color? fill;
+    final Color borderColor;
+    final Widget child;
+    if (it.prepStatus == 'started') {
+      fill = KColors.warning.withValues(alpha: 0.16);
+      borderColor = KColors.warning.withValues(alpha: 0.55);
+      child = const Text('COOKING',
+          style: TextStyle(
+              color: KColors.warning, fontSize: 10, fontWeight: FontWeight.w800));
+    } else if (it.prepStatus == 'done') {
+      fill = KColors.success.withValues(alpha: 0.16);
+      borderColor = KColors.success.withValues(alpha: 0.55);
+      child = const Text('READY',
+          style: TextStyle(
+              color: KColors.success, fontSize: 10, fontWeight: FontWeight.w800));
+    } else {
+      fill = null;
+      borderColor = KColors.border;
+      child = const Icon(Icons.radio_button_unchecked,
+          size: 14, color: KColors.textFaint);
+    }
+    return GestureDetector(
+      onTap: () => _cycleItem(t, it),
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 68),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: borderColor),
+        ),
+        child: child,
+      ),
+    );
+  }
+
+  /// Sends the next item verb and applies it optimistically; the register's
+  /// next full-snapshot broadcast replaces [_tickets] wholesale and reconciles.
+  void _cycleItem(KdsTicket t, KdsItem it) {
+    if (it.id == 0) return; // old-register payload: items are not addressable
+    final String action;
+    final String next;
+    if (it.prepStatus == 'started') {
+      action = 'item_done';
+      next = 'done';
+    } else if (it.prepStatus == 'done') {
+      action = 'item_reset';
+      next = '';
+    } else {
+      action = 'item_start';
+      next = 'started';
+    }
+    _client.sendItemAction(action, it.id);
+    setState(() {
+      _tickets = [
+        for (final tk in _tickets)
+          if (tk.id != t.id)
+            tk
+          else
+            tk.copyWith(items: [
+              for (final i in tk.items)
+                if (i.id == it.id) i.copyWith(prepStatus: next) else i
+            ])
+      ];
+    });
   }
 }

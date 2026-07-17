@@ -131,6 +131,14 @@ class KdsClient {
     } catch (_) {}
   }
 
+  /// Per-item expo verbs: 'item_start' | 'item_done' | 'item_reset'.
+  /// The register updates the row and re-broadcasts a full snapshot.
+  void sendItemAction(String action, int itemId) {
+    try {
+      _ws?.add(jsonEncode({'type': action, 'itemId': itemId}));
+    } catch (_) {}
+  }
+
   Future<void> stop() async {
     _disposed = true;
     _retry?.cancel();
