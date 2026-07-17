@@ -33,11 +33,11 @@ class KColors {
     }
   }
 
-  /// Ticket age color: green under 8m, amber under 15m, red after.
-  static Color ticketAge(Duration age) {
+  /// Ticket age color: green, then amber at [warn] minutes, red at [late].
+  static Color ticketAge(Duration age, {int warn = 8, int late = 15}) {
     final m = age.inMinutes;
-    if (m >= 15) return danger;
-    if (m >= 8) return warning;
+    if (m >= late) return danger;
+    if (m >= warn) return warning;
     return success;
   }
 }

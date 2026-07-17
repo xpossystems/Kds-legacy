@@ -27,6 +27,10 @@ class KdsClient {
   final _tickets = StreamController<List<KdsTicket>>.broadcast();
   final _status = StreamController<String>.broadcast();
 
+  /// SLA thresholds (minutes) pushed by the register with each ticket update.
+  int slaWarnMinutes = 8;
+  int slaLateMinutes = 15;
+
   Stream<List<KdsTicket>> get tickets => _tickets.stream;
   Stream<String> get status => _status.stream;
   bool get isConnected => _ws != null;
@@ -84,6 +88,11 @@ class KdsClient {
         try {
           final data = jsonDecode(message as String);
           if (data is Map && data['type'] == 'tickets' && data['tickets'] is List) {
+            final sla = data['sla'];
+            if (sla is Map) {
+              slaWarnMinutes = (sla['warn'] as num?)?.toInt() ?? slaWarnMinutes;
+              slaLateMinutes = (sla['late'] as num?)?.toInt() ?? slaLateMinutes;
+            }
             _tickets.add([
               for (final t in data['tickets'] as List)
                 if (t is Map) KdsTicket.fromJson(Map<String, dynamic>.from(t))

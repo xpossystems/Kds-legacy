@@ -62,6 +62,7 @@ class _KdsScreenState extends State<KdsScreen> {
     final itemCount = _tickets.fold<int>(0, (s, t) => s + t.items.length);
     final oldest =
         _tickets.fold<int>(0, (m, t) => t.age.inMinutes > m ? t.age.inMinutes : m);
+    final lateAt = _client.slaLateMinutes;
 
     return Scaffold(
       backgroundColor: KColors.bg,
@@ -102,7 +103,7 @@ class _KdsScreenState extends State<KdsScreen> {
                   _stat('$itemCount', 'Items', KColors.textMuted),
                   const SizedBox(width: 8),
                   _stat('${oldest}m', 'Oldest',
-                      oldest >= 15 ? KColors.danger : KColors.textMuted),
+                      oldest >= lateAt ? KColors.danger : KColors.textMuted),
                   const Spacer(),
                   _stationChips(),
                   const SizedBox(width: 8),
@@ -242,6 +243,12 @@ class _KdsScreenState extends State<KdsScreen> {
   }
 
   Widget _stationChips() {
+    int countFor(String s) => s == 'All'
+        ? _tickets.length
+        : _tickets
+            .where((t) =>
+                t.items.any((i) => i.station.toLowerCase() == s.toLowerCase()))
+            .length;
     return Wrap(
       spacing: 6,
       children: [
@@ -269,6 +276,15 @@ class _KdsScreenState extends State<KdsScreen> {
                         color: _station == s ? const Color(0xFF14171E) : KColors.textMuted,
                         fontWeight: FontWeight.w600,
                         fontSize: 11)),
+                if (countFor(s) > 0) ...[
+                  const SizedBox(width: 4),
+                  Text('${countFor(s)}',
+                      style: TextStyle(
+                          color: _station == s
+                              ? const Color(0xFF6B7280)
+                              : KColors.textFaint,
+                          fontSize: 10)),
+                ],
               ]),
             ),
           ),
@@ -278,7 +294,10 @@ class _KdsScreenState extends State<KdsScreen> {
 
   Widget _ticketCard(KdsTicket t) {
     final held = t.status == 'held';
-    final ageColor = held ? KColors.textFaint : KColors.ticketAge(t.age);
+    final ageColor = held
+        ? KColors.textFaint
+        : KColors.ticketAge(t.age,
+            warn: _client.slaWarnMinutes, late: _client.slaLateMinutes);
     final mins = t.age.inMinutes;
     final secs = (t.age.inSeconds % 60).toString().padLeft(2, '0');
     final isNamedOrder =
